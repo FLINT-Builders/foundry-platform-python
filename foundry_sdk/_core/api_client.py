@@ -517,7 +517,18 @@ class BaseApiClient:
         for k, v in path_params.items():
             # the "safe" option defaults to "/"
             # this does not work with the backend which expects "/" characters to be encoded
-            resource_path = resource_path.replace(f"{{{k}}}", quote(v, safe=""))
+            encoded = quote(v, safe="")
+
+            # httpx (and servers per RFC 3986) collapse "." and ".." segments, and an empty
+            # segment drops the identifier, so any of these would send the request to a
+            # different endpoint than the one being called.
+            if encoded in ("", ".", ".."):
+                raise ValueError(
+                    f"Invalid value {v!r} for path parameter {k!r}: "
+                    "path parameters must not be empty, '.' or '..'."
+                )
+
+            resource_path = resource_path.replace(f"{{{k}}}", encoded)
 
         base_url = self._hostname_supplier.get_endpoint(request_info.endpoint_type)
         return f"{base_url}{resource_path}"
@@ -731,6 +742,7 @@ class ApiClient(BaseApiClient):
 
     def _call_api(self, request_info: RequestInfo) -> Any:
         response_mode = self._get_response_mode(request_info)
+        url = self._create_url(request_info)
 
         if response_mode == "ITERATOR":
             # Extract the initial page_token from query_params if provided by the user
@@ -759,7 +771,7 @@ class ApiClient(BaseApiClient):
             def make_request(token: Token):
                 request = self._session.build_request(
                     method=request_info.method,
-                    url=self._create_url(request_info),
+                    url=url,
                     params=self._process_query_parameters(request_info.query_params),
                     content=self._serialize(request_info.body),
                     headers=self._create_headers(request_info, token),
@@ -835,6 +847,8 @@ class AsyncApiClient(BaseApiClient):
 
     def _call_api(self, request_info: RequestInfo) -> Any:
         response_mode = self._get_response_mode(request_info)
+        # Validates path parameters before a coroutine or iterator is handed back.
+        self._create_url(request_info)
 
         if response_mode == "ITERATOR":
             # Extract the initial page_token from query_params if provided by the user
@@ -872,12 +886,14 @@ class AsyncApiClient(BaseApiClient):
             return self._async_call_api(request_info, response_mode)
 
     async def _async_call_api(self, request_info: RequestInfo, response_mode: ResponseMode) -> Any:
+        url = self._create_url(request_info)
+
         with error_handling():
 
             async def make_request(token: Token):
                 request = self._client.build_request(
                     method=request_info.method,
-                    url=self._create_url(request_info),
+                    url=url,
                     params=self._process_query_parameters(request_info.query_params),
                     content=self._serialize(request_info.body),
                     headers=self._create_headers(request_info, token),
