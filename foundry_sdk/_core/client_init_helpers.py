@@ -66,7 +66,10 @@ def _clean_hostname(hostname: str, config: Optional[Config] = None) -> str:
 def maybe_create_hostname_supplier(
     base_url: Optional[str] = None, config: Optional[Config] = None
 ) -> Optional[HostnameSupplier]:
-    """Resolve hostname supplier with priority: explicit base_url > service discovery YAML > context/env vars."""
+    """Resolve hostname supplier with priority: explicit base_url > service discovery YAML > context/env vars.
+
+    Service discovery URLs only override endpoints on the same origin as the context/env hostname.
+    """
     config = config or Config()
 
     if base_url is not None:
@@ -94,13 +97,16 @@ def maybe_get_env_hostname_supplier(config: Optional[Config]) -> Optional[Hostna
 def maybe_get_service_discovery_hostname_supplier(
     config: Optional[Config], fallback: Optional[HostnameSupplier]
 ) -> Optional[HostnameSupplier]:
+    config = config or Config()
     service_discovery_path = os.environ.get("FOUNDRY_SERVICE_DISCOVERY_V2", None)
     if service_discovery_path is not None:
         import yaml
 
         with open(service_discovery_path, "r") as f:
             services = yaml.safe_load(f)
-            return ServiceDiscoveryHostnameSupplier(services, fallback_supplier=fallback)
+        return ServiceDiscoveryHostnameSupplier(
+            services, fallback_supplier=fallback, scheme=config.scheme
+        )
     return None
 
 
