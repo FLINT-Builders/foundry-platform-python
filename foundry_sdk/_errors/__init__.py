@@ -20,6 +20,7 @@ from foundry_sdk._errors.environment_not_configured import (
     EnvironmentNotConfigured as EnvironmentNotConfigured,
 )  # NOQA
 from foundry_sdk._errors.not_authenticated import NotAuthenticated as NotAuthenticated
+from foundry_sdk._errors.pagination_error import PaginationError as PaginationError
 from foundry_sdk._errors.palantir_exception import PalantirException as PalantirException  # NOQA
 from foundry_sdk._errors.palantir_qos_exception import (
     PalantirQoSException as PalantirQoSException,

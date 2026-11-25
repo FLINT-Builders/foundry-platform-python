@@ -314,6 +314,7 @@ There are a handful of other exception classes that could be thrown when instant
 | ReadTimeout                | Yes             | The server did not send any data in the allotted amount of time.                                                                  |
 | WriteTimeout               | Yes             | There was a timeout when writing data to the server.                                                                              |
 | StreamConsumedError        | Yes             | The content of the given stream has already been consumed.                                                                        |
+| PaginationError            | Yes             | Iteration stopped because the server returned too many consecutive empty pages that still had a next page token.                  |
 | RequestEntityTooLargeError | Yes             | The request entity is too large.                                                                                                  |
 | ConflictError              | Yes             | There was a conflict with another request.                                                                                        |
 | RateLimitError             | Yes             | The request was rate limited. Reduce your request rate and retry your request shortly.                                            |
