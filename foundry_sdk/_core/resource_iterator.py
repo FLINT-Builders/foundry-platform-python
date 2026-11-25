@@ -13,7 +13,7 @@
 #  limitations under the License.
 
 
-from typing import Generic, List, Optional, TypeVar
+from typing import Generic, List, NoReturn, Optional, TypeVar
 
 from foundry_sdk._core.page_iterator import (
     AsyncPageFunction,
@@ -21,8 +21,20 @@ from foundry_sdk._core.page_iterator import (
     PageFunction,
     PageIterator,
 )
+from foundry_sdk._errors import PaginationError
 
 T = TypeVar("T")
+
+# A server that keeps answering with empty pages and a next page token would otherwise make a
+# single iteration step issue requests without end, since no item is ever handed to the caller.
+MAX_CONSECUTIVE_EMPTY_PAGES = 16
+
+
+def _raise_too_many_empty_pages() -> NoReturn:
+    raise PaginationError(
+        f"Stopped paging after {MAX_CONSECUTIVE_EMPTY_PAGES} consecutive empty pages that each "
+        "returned a next page token."
+    )
 
 
 class ResourceIterator(Generic[T]):
@@ -36,6 +48,8 @@ class ResourceIterator(Generic[T]):
     ) -> None:
         self._page_iterator = PageIterator(paged_func, page_size, page_token)
         self._index = 0
+        self._consecutive_empty_pages = 0
+        self._record_page(self._page_iterator.data)
 
     @property
     def data(self) -> List[T]:
@@ -57,11 +71,22 @@ class ResourceIterator(Generic[T]):
         return obj
 
     def _get_data(self):
+        if (
+            self._consecutive_empty_pages >= MAX_CONSECUTIVE_EMPTY_PAGES
+            and self._page_iterator.next_page_token is not None
+        ):
+            _raise_too_many_empty_pages()
+
         try:
             next(self._page_iterator)
             self._index = 0
         except StopIteration:
             raise StopIteration("End of iteration reached")
+
+        self._record_page(self._page_iterator.data)
+
+    def _record_page(self, data: List[T]) -> None:
+        self._consecutive_empty_pages = 0 if data else self._consecutive_empty_pages + 1
 
 
 class AsyncResourceIterator(Generic[T]):
@@ -76,6 +101,7 @@ class AsyncResourceIterator(Generic[T]):
         self._page_iterator = AsyncPageIterator(paged_func, page_size, page_token)
         self._data: Optional[List[T]] = None
         self._index = 0
+        self._consecutive_empty_pages = 0
 
     def __aiter__(self):
         return self
@@ -83,12 +109,22 @@ class AsyncResourceIterator(Generic[T]):
     async def __anext__(self):
         if self._data is None:
             self._data = await self._page_iterator.__anext__()
+            self._record_page(self._data)
 
-        if self._index >= len(self._data):
+        while self._index >= len(self._data):
+            if (
+                self._consecutive_empty_pages >= MAX_CONSECUTIVE_EMPTY_PAGES
+                and await self._page_iterator.get_next_page_token() is not None
+            ):
+                _raise_too_many_empty_pages()
+
             self._data = await self._page_iterator.__anext__()
             self._index = 0
-            return await self.__anext__()
+            self._record_page(self._data)
 
         obj = self._data[self._index]
         self._index += 1
         return obj
+
+    def _record_page(self, data: List[T]) -> None:
+        self._consecutive_empty_pages = 0 if data else self._consecutive_empty_pages + 1
