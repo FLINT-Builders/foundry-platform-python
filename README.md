@@ -495,6 +495,16 @@ pip install foundry-platform-sdk[duckdb]
 
 If you attempt to use a conversion method without the required dependency installed, the SDK will provide a helpful error message with installation instructions.
 
+### Table size limit
+
+Before decoding a table response, the SDK checks how much memory decoding it would need, using the sizes the Arrow or Parquet payload declares, and raises `TableTooLargeError` instead of decoding a table that would need more than the limit. The limit also covers the table's size once dictionary, run-end and view encodings are expanded. It defaults to 8 MiB. To read larger tables, raise it with `Config(table_max_bytes=...)`:
+
+```python
+client = FoundryClient(auth=..., hostname=..., config=Config(table_max_bytes=512 * 1024 * 1024))
+```
+
+Payloads that are not well-formed Arrow IPC streams or Parquet files raise `MalformedTableError`.
+
 <a id="static-types"></a>
 ## Static type analysis
 
@@ -608,6 +618,7 @@ The full list of options can be found below.
 - `verify` (bool | str): SSL verification, can be a boolean or a path to a CA bundle. Defaults to `True`.
 - `default_params` (dict[str, Any]): URL query parameters to include with all requests.
 - `scheme` ("http" | "https"): URL scheme to use ('http' or 'https'). Defaults to 'https'.
+- `table_max_bytes` (int): The maximum memory, in bytes, that decoding an Arrow or Parquet table response may use. Defaults to 8 MiB. See [Table size limit](#data-frames).
 
 ### SSL Certificate Verification
 
