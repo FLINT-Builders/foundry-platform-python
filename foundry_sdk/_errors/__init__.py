@@ -54,6 +54,8 @@ from foundry_sdk._errors.sdk_internal_error import handle_unexpected as handle_u
 from foundry_sdk._errors.sse_error import SseContentTypeError as SseContentTypeError
 from foundry_sdk._errors.sse_error import SseEventDecodeError as SseEventDecodeError
 from foundry_sdk._errors.stream_error import StreamConsumedError as StreamConsumedError
+from foundry_sdk._errors.table_error import MalformedTableError as MalformedTableError
+from foundry_sdk._errors.table_error import TableTooLargeError as TableTooLargeError
 from foundry_sdk._errors.timeout_error import ConnectTimeout as ConnectTimeout
 from foundry_sdk._errors.timeout_error import ReadTimeout as ReadTimeout
 from foundry_sdk._errors.timeout_error import TimeoutError as TimeoutError

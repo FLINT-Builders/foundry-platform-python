@@ -60,3 +60,10 @@ class Config:
     for the c-th retry.
     If no value is provided, it defaults to 250 milliseconds.
     """
+
+    table_max_bytes: Optional[int] = None
+    """
+    The maximum number of bytes an Arrow or Parquet table response may use once decoded
+    (for example by to_pandas or to_pyarrow). Larger tables raise TableTooLargeError before
+    they are decoded. If no value is provided, it defaults to 8 MiB.
+    """

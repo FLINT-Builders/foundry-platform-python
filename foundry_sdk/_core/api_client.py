@@ -58,6 +58,7 @@ from foundry_sdk._core.hostname_supplier import EndpointType, HostnameSupplier
 from foundry_sdk._core.http_client import AsyncHttpClient, HttpClient
 from foundry_sdk._core.resource_iterator import AsyncResourceIterator, ResourceIterator
 from foundry_sdk._core.table import ArrowTableResponse, ParquetTableResponse
+from foundry_sdk._core.table_limits import resolve_max_bytes
 from foundry_sdk._errors import (
     ApiNotFoundError,
     BadRequestError,
@@ -485,6 +486,7 @@ class BaseApiClient:
         self._auth = auth
         self._hostname_supplier = hostname_supplier
         self._auth._parameterize(hostname_supplier, config)
+        self._table_max_bytes = resolve_max_bytes(config.table_max_bytes if config else None)
 
     def _get_timeout(self, request_info: RequestInfo):
         return (
@@ -786,12 +788,12 @@ class ApiClient(BaseApiClient):
             if res.content == b"":
                 return None
             else:
-                return ArrowTableResponse(res.content)
+                return ArrowTableResponse(res.content, self._table_max_bytes)
         elif response_mode == "PARQUET_TABLE":
             if res.content == b"":
                 return None
             else:
-                return ParquetTableResponse(res.content)
+                return ParquetTableResponse(res.content, self._table_max_bytes)
         elif response_mode == "RAW":
             return api_response
         else:
@@ -899,12 +901,12 @@ class AsyncApiClient(BaseApiClient):
             if res.content == b"":
                 return None
             else:
-                return ArrowTableResponse(res.content)
+                return ArrowTableResponse(res.content, self._table_max_bytes)
         elif response_mode == "PARQUET_TABLE":
             if res.content == b"":
                 return None
             else:
-                return ParquetTableResponse(res.content)
+                return ParquetTableResponse(res.content, self._table_max_bytes)
         else:
             return api_response.decode()
 

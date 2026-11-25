@@ -15,6 +15,14 @@
 
 from typing import TYPE_CHECKING, Optional
 
+from foundry_sdk._core.table_limits import (
+    check_arrow_stream,
+    check_body_size,
+    check_dense_size,
+    check_parquet_file,
+    resolve_max_bytes,
+)
+
 if TYPE_CHECKING:
     import duckdb  # type: ignore
     import pandas as pd  # type: ignore
@@ -30,13 +38,20 @@ def _error_msg(package_required: str, convert_to: str, extra_dependency: str):
 
 
 class TableResponse(bytes):
-    """A generic class for deserializing an Arrow Table into various formats."""
+    """
+    A generic class for deserializing an Arrow Table into various formats.
+
+    Decoding is refused with TableTooLargeError when the table would need more than
+    ``max_bytes`` of memory (8 MiB by default).
+    """
 
     _arrow_table: Optional["pa.Table"]
+    _max_bytes: int
 
-    def __new__(cls, arrow_bytes: bytes):
+    def __new__(cls, arrow_bytes: bytes, max_bytes: Optional[int] = None):
         instance = super().__new__(cls, arrow_bytes)
         instance._arrow_table = None
+        instance._max_bytes = resolve_max_bytes(max_bytes)
         return instance
 
     def to_pandas(self) -> "pd.DataFrame":
@@ -82,7 +97,11 @@ class ArrowTableResponse(TableResponse):
             raise ImportError(_error_msg("pyarrow", "an Arrow Table", extra_dependency))
 
         if self._arrow_table is None:
-            self._arrow_table = pa.ipc.open_stream(self).read_all()
+            check_body_size(self, "Arrow", self._max_bytes)
+            check_arrow_stream(self, self._max_bytes)
+            table = pa.ipc.open_stream(pa.py_buffer(self)).read_all()
+            check_dense_size(table, "Arrow", self._max_bytes)
+            self._arrow_table = table
 
         return self._arrow_table
 
@@ -98,6 +117,18 @@ class ParquetTableResponse(TableResponse):
             raise ImportError(_error_msg("pyarrow", "an Arrow Table", extra_dependency))
 
         if self._arrow_table is None:
-            self._arrow_table = pq.read_table(pa.BufferReader(self))
+            check_body_size(self, "Parquet", self._max_bytes)
+            plan = check_parquet_file(self, self._max_bytes)
+            parquet_file = pq.ParquetFile(
+                pa.BufferReader(self),
+                read_dictionary=plan.read_dictionary or None,
+                thrift_string_size_limit=plan.thrift_limit,
+                thrift_container_size_limit=plan.thrift_limit,
+            )
+            table = parquet_file.read()
+            check_dense_size(table, "Parquet", self._max_bytes)
+            if plan.read_dictionary:
+                table = table.cast(plan.schema)
+            self._arrow_table = table
 
         return self._arrow_table
