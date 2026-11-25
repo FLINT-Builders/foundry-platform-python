@@ -13,8 +13,14 @@
 #  limitations under the License.
 
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional, Union
+
+import httpx
+
+
+def _default_timeout() -> httpx.Timeout:
+    return httpx.Timeout(60.0, connect=10.0)
 
 
 @dataclass
@@ -29,8 +35,12 @@ class Config:
     proxies: Optional[Dict[Literal["http", "https"], str]] = None
     """Proxies to use for HTTP and HTTPS requests."""
 
-    timeout: Optional[Union[int, float]] = None
-    """The default timeout for all requests in seconds."""
+    timeout: Optional[Union[int, float, httpx.Timeout]] = field(default_factory=_default_timeout)
+    """
+    The default timeout for all requests in seconds, or an ``httpx.Timeout`` for per-phase limits.
+    Defaults to 10 seconds to connect and 60 seconds for each read, write, and connection pool
+    wait. Set to ``None`` to disable all timeouts.
+    """
 
     verify: Union[bool, str] = True
     """
