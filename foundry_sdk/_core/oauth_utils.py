@@ -51,7 +51,7 @@ class SignOutResponse(pydantic.BaseModel):
 class OAuthTokenResponse(pydantic.BaseModel):
     access_token: str
     token_type: str
-    expires_in: int
+    expires_in: int = pydantic.Field(gt=0)
     refresh_token: Optional[str] = None
 
     def __init__(self, token_response: Dict[str, Any]) -> None:
@@ -59,6 +59,7 @@ class OAuthTokenResponse(pydantic.BaseModel):
 
 
 REFRESH_LIFETIME_FRACTION = 0.75
+MIN_REFRESH_INTERVAL_SECONDS = 30
 TOKEN_EXPIRED_PADDING_MS = 60 * 1000
 
 
@@ -158,10 +159,15 @@ class OAuth(Auth, ABC):
         self._stop_refresh_event = threading.Event()
         stop = self._stop_refresh_event
 
+        def _refresh_interval() -> float:
+            if self._token is None:
+                return 10
+            return max(
+                self._token.expires_in * REFRESH_LIFETIME_FRACTION, MIN_REFRESH_INTERVAL_SECONDS
+            )
+
         def _auto_refresh_token() -> None:
-            while not stop.wait(
-                self._token.expires_in * REFRESH_LIFETIME_FRACTION if self._token else 10
-            ):
+            while not stop.wait(_refresh_interval()):
                 if self._token:
                     try:
                         self._try_refresh_token()
