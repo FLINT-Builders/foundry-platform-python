@@ -16,7 +16,8 @@
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from functools import cache
+from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlsplit
 
 log = logging.getLogger(__name__)
 
@@ -71,12 +72,64 @@ class StaticHostnameSupplier(HostnameSupplier):
         return self._is_user_supplied
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+_Origin = Tuple[str, str, int]
+
+
+def _parse_origin(url: str) -> Optional[_Origin]:
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme not in _DEFAULT_PORTS or not parts.hostname:
+        return None
+    return parts.scheme, parts.hostname, port if port is not None else _DEFAULT_PORTS[parts.scheme]
+
+
+def _format_origin(origin: _Origin) -> str:
+    scheme, host, port = origin
+    if ":" in host:
+        host = f"[{host}]"
+    if port != _DEFAULT_PORTS[scheme]:
+        host = f"{host}:{port}"
+    return f"{scheme}://{host}"
+
+
 class ServiceDiscoveryHostnameSupplier(HostnameSupplier):
+    """Resolves endpoints from a service discovery mapping.
+
+    Discovered URLs are only used when they share the origin (scheme, host and port) of the
+    fallback supplier's hostname, or, without a fallback, use the configured scheme. URLs with
+    userinfo, a query or a fragment are ignored. Endpoints are resolved once, at construction.
+    """
+
+    _SERVICE_NAMES = {
+        EndpointType.GENERIC: "api-gateway",
+        EndpointType.AUTH: "multipass",
+        EndpointType.HIGH_SCALE: "stream-proxy",
+    }
+
     def __init__(
-        self, services: dict[str, list[str]], fallback_supplier: HostnameSupplier | None = None
+        self,
+        services: Any,
+        fallback_supplier: HostnameSupplier | None = None,
+        scheme: str = "https",
     ) -> None:
-        self._services = services
         self._fallback_supplier = fallback_supplier
+        self._scheme = scheme
+        self._allowed_origin = (
+            _parse_origin(fallback_supplier.get_hostname())
+            if fallback_supplier is not None
+            else None
+        )
+        if not isinstance(services, dict):
+            services = {}
+        self._endpoints: Dict[EndpointType, Optional[str]] = {
+            endpoint_type: self._find_service_url(services, service_name)
+            for endpoint_type, service_name in self._SERVICE_NAMES.items()
+        }
 
     def get_hostname(self) -> str:
         if self._fallback_supplier is not None:
@@ -85,22 +138,12 @@ class ServiceDiscoveryHostnameSupplier(HostnameSupplier):
             "Unable to provide hostname. Please provide a hostname parameter to the client."
         )
 
-    @cache
-    def get_endpoint(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self, endpoint_type: EndpointType
-    ) -> str:
-        service_name = None
-        if endpoint_type == EndpointType.GENERIC:
-            service_name = "api-gateway"
-        elif endpoint_type == EndpointType.AUTH:
-            service_name = "multipass"
-        elif endpoint_type == EndpointType.HIGH_SCALE:
-            service_name = "stream-proxy"
-
+    def get_endpoint(self, endpoint_type: EndpointType) -> str:
+        service_name = self._SERVICE_NAMES.get(endpoint_type)
         if service_name is None:
             raise ValueError(f"Unsupported endpoint type: {endpoint_type}")
 
-        url = self._find_service_url(service_name)
+        url = self._endpoints[endpoint_type]
         if url is not None:
             return url
 
@@ -112,13 +155,44 @@ class ServiceDiscoveryHostnameSupplier(HostnameSupplier):
     def is_user_supplied(self) -> bool:
         return False
 
-    def _find_service_url(self, service_name: str) -> str | None:
+    def _find_service_url(self, services: Dict[Any, Any], service_name: str) -> Optional[str]:
         # Functions swaps hyphens for underscores in service names
         alt_service_name = service_name.replace("-", "_")
         service_names = [service_name, alt_service_name]
         for name in service_names:
-            urls = self._services.get(name)
-            if urls:
-                return urls[0]
+            urls = services.get(name)
+            if not isinstance(urls, list):
+                continue
+            for url in urls:
+                validated_url = self._validate_service_url(url)
+                if validated_url is not None:
+                    return validated_url
+                log.warning(
+                    "Ignoring service discovery URL for '%s': it must use the origin of the "
+                    "configured Foundry hostname and must not contain userinfo, a query or a "
+                    "fragment.",
+                    name,
+                )
 
         return None
+
+    def _validate_service_url(self, url: Any) -> Optional[str]:
+        if not isinstance(url, str):
+            return None
+        try:
+            parts = urlsplit(url)
+        except ValueError:
+            return None
+        if "@" in parts.netloc or parts.query or parts.fragment:
+            return None
+
+        origin = _parse_origin(url)
+        if origin is None:
+            return None
+        if self._fallback_supplier is not None:
+            if self._allowed_origin is None or origin != self._allowed_origin:
+                return None
+        elif origin[0] != self._scheme:
+            return None
+
+        return _format_origin(origin) + parts.path.rstrip("/")

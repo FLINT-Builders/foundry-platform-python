@@ -103,6 +103,11 @@ The `auth` and `hostname` parameters are set (in order of precedence) by:
 
 The `FOUNDRY_TOKEN` is a string of an users Bearer token, which will create a `UserTokenAuth` for the `auth` parameter.
 
+When no `hostname` is passed, the environment variable `FOUNDRY_SERVICE_DISCOVERY_V2` may point to a service
+discovery YAML file whose service URLs override the endpoints derived from `FOUNDRY_HOSTNAME`. A discovered URL is
+only used when it has the same scheme, host and port as `FOUNDRY_HOSTNAME` (or, when that is not set, the configured
+scheme) and contains no userinfo, query or fragment; other URLs are ignored.
+
 ```python
 import foundry_sdk
 
