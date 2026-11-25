@@ -385,7 +385,12 @@ class PublicClientOAuthFlowProvider:
         token_url = base_url + OAuthUtils.TOKEN_REQUEST_PATH
         response = client.post(token_url, data=params, headers=headers)
         response.raise_for_status()
-        return OAuthToken(token=OAuthTokenResponse(token_response=response.json()))
+        token_response = OAuthTokenResponse(token_response=response.json())
+        # RFC 6749 section 6: the refresh token sent on this request stays valid unless the
+        # server issues a new one, so an omitted, null, or empty value must not discard it.
+        if not token_response.refresh_token:
+            token_response = token_response.model_copy(update={"refresh_token": refresh_token})
+        return OAuthToken(token=token_response)
 
     def revoke_token(self, client: HttpClient, access_token: str, base_url: str) -> None:
         body = {

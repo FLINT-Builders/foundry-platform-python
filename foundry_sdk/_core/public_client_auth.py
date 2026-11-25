@@ -80,10 +80,11 @@ class PublicClientAuth(OAuth):
             )
 
     def _try_refresh_token(self) -> bool:
-        if self._token and self._token.refresh_token:
+        refresh_token = self._token.refresh_token if self._token else None
+        if refresh_token:
             self._token = self._server_oauth_flow_provider.refresh_token(
                 self._get_client(),
-                refresh_token=self._token.refresh_token,
+                refresh_token=refresh_token,
                 base_url=self._get_base_url(),
             )
             return True
