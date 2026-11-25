@@ -604,7 +604,7 @@ The full list of options can be found below.
 
 - `default_headers` (dict[str, str]): HTTP headers to include with all requests.
 - `proxies` (dict["http" | "https", str]): Proxies to use for HTTP and HTTPS requests.
-- `timeout` (int | float): The default timeout for all requests in seconds.
+- `timeout` (int | float | httpx.Timeout | None): The default timeout for all requests in seconds. Defaults to 10 seconds to connect and 60 seconds for each read, write, and connection pool wait. Set to `None` to disable all timeouts.
 - `verify` (bool | str): SSL verification, can be a boolean or a path to a CA bundle. Defaults to `True`.
 - `default_params` (dict[str, Any]): URL query parameters to include with all requests.
 - `scheme` ("http" | "https"): URL scheme to use ('http' or 'https'). Defaults to 'https'.
