@@ -17,9 +17,9 @@
   },
   "homepage": "https://github.com/palantir/foundry-platform-python#readme",
   "devDependencies": {
-    "@osdk/docs-spec-core": "^0.5.0",
-    "@osdk/docs-spec-platform": "^0.8.0",
-    "typescript": "^5.8.3"
+    "@osdk/docs-spec-core": "0.5.0",
+    "@osdk/docs-spec-platform": "0.8.0",
+    "typescript": "5.9.3"
   },
   "sls": {
     "dependencies": {
