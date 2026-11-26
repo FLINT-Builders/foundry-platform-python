@@ -79,13 +79,12 @@ class ConfidentialClientAuth(OAuth):
                 self._start_auto_refresh()
         return self._token
 
-    def _revoke_token(self) -> None:
-        if self._token:
-            self._server_oauth_flow_provider.revoke_token(
-                self._get_client(),
-                self._token.access_token,
-                self._get_base_url(),
-            )
+    def _revoke_token(self, token: OAuthToken) -> None:
+        self._server_oauth_flow_provider.revoke_token(
+            self._get_client(),
+            token.access_token,
+            self._get_base_url(),
+        )
 
     @property
     def url(self) -> str:
