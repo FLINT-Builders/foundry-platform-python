@@ -62,32 +62,57 @@ class PublicClientAuth(OAuth):
         return self._server_oauth_flow_provider.scopes or []
 
     def get_token(self) -> OAuthToken:
-        if self._token is None:
+        token = self._token
+        if token is None:
             raise NotAuthenticated("Client has not been authenticated.")
-        if self._token.expired:
+        if token.expired:
             if not self._try_refresh_token():
                 raise NotAuthenticated("Token expired and refresh failed.")
-            if self._should_refresh:
-                self._start_auto_refresh()
-        return self._token
+            with self._token_lock:
+                token = self._token
+                if token is None:
+                    raise NotAuthenticated("Client has been signed out.")
+                if self._should_refresh:
+                    self._start_auto_refresh()
+        return token
 
-    def _revoke_token(self) -> None:
-        if self._token:
-            self._server_oauth_flow_provider.revoke_token(
-                self._get_client(),
-                self._token.access_token,
-                self._get_base_url(),
-            )
+    def _revoke_token(self, token: OAuthToken) -> None:
+        client = self._get_client()
+        base_url = self._get_base_url()
+        tokens = [token.access_token]
+        if token.refresh_token:
+            tokens.append(token.refresh_token)
+
+        error: Optional[Exception] = None
+        for value in tokens:
+            try:
+                self._server_oauth_flow_provider.revoke_token(client, value, base_url)
+            except Exception as e:
+                error = error or e
+        if error is not None:
+            raise error
 
     def _try_refresh_token(self) -> bool:
-        if self._token and self._token.refresh_token:
-            self._token = self._server_oauth_flow_provider.refresh_token(
+        with self._refresh_lock:
+            token = self._token
+            if token is None or not token.refresh_token:
+                return False
+
+            new_token = self._server_oauth_flow_provider.refresh_token(
                 self._get_client(),
-                refresh_token=self._token.refresh_token,
+                refresh_token=token.refresh_token,
                 base_url=self._get_base_url(),
             )
-            return True
-        return False
+            if self._replace_token(token, new_token):
+                return True
+
+            # The session this refresh was started for was signed out or replaced
+            # while the request was in flight, so the new tokens must not be kept.
+            try:
+                self._revoke_token(new_token)
+            except Exception:
+                pass
+            return False
 
     @property
     def url(self) -> str:
@@ -110,12 +135,14 @@ class PublicClientAuth(OAuth):
         if state != self._auth_request.state:
             raise RuntimeError("Unable to verify state")
 
-        self._token = self._server_oauth_flow_provider.get_token(
+        token = self._server_oauth_flow_provider.get_token(
             self._get_client(),
             code=code,
             code_verifier=self._auth_request.code_verifier,
             base_url=self._get_base_url(),
         )
 
-        if self._should_refresh:
-            self._start_auto_refresh()
+        with self._token_lock:
+            self._token = token
+            if self._should_refresh:
+                self._start_auto_refresh()

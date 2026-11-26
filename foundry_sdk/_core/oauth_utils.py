@@ -116,13 +116,35 @@ class OAuth(Auth, ABC):
         self._should_refresh = should_refresh
         self._stop_refresh_event = threading.Event()
         self._token: Optional[OAuthToken] = None
+        # Guards reads and writes of _token and _stop_refresh_event.
+        self._token_lock = threading.RLock()
+        # Held for the full duration of a token refresh, including the network call.
+        self._refresh_lock = threading.RLock()
 
     def sign_out(self) -> SignOutResponse:
-        self._revoke_token()
-        self._token = None
-        # Signal the auto-refresh thread to stop
-        self._stop_refresh_event.set()
+        with self._token_lock:
+            token = self._token
+            self._token = None
+            # Signal the auto-refresh thread to stop
+            self._stop_refresh_event.set()
+
+        try:
+            if token is not None:
+                self._revoke_token(token)
+        finally:
+            # Wait for any in-flight refresh to finish. It can no longer install its
+            # result (the session it was bound to has ended) and revokes it instead.
+            with self._refresh_lock:
+                pass
         return SignOutResponse()
+
+    def _replace_token(self, expected: Optional[OAuthToken], new_token: OAuthToken) -> bool:
+        """Install new_token only if the current token is still the expected object."""
+        with self._token_lock:
+            if self._token is not expected:
+                return False
+            self._token = new_token
+            return True
 
     def execute_with_token(self, func: Callable[[OAuthToken], T]) -> T:
         try:
@@ -145,7 +167,7 @@ class OAuth(Auth, ABC):
         pass
 
     @abstractmethod
-    def _revoke_token(self) -> None:
+    def _revoke_token(self, token: OAuthToken) -> None:
         pass
 
     @abstractmethod
@@ -153,15 +175,18 @@ class OAuth(Auth, ABC):
         pass
 
     def _start_auto_refresh(self) -> None:
-        # Stop any existing auto-refresh thread before starting a new one
-        self._stop_refresh_event.set()
-        self._stop_refresh_event = threading.Event()
-        stop = self._stop_refresh_event
+        with self._token_lock:
+            # Stop any existing auto-refresh thread before starting a new one
+            self._stop_refresh_event.set()
+            self._stop_refresh_event = threading.Event()
+            stop = self._stop_refresh_event
+
+        def _next_refresh_delay() -> float:
+            token = self._token
+            return token.expires_in * REFRESH_LIFETIME_FRACTION if token else 10
 
         def _auto_refresh_token() -> None:
-            while not stop.wait(
-                self._token.expires_in * REFRESH_LIFETIME_FRACTION if self._token else 10
-            ):
+            while not stop.wait(_next_refresh_delay()):
                 if self._token:
                     try:
                         self._try_refresh_token()
